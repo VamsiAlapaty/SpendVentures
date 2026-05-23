@@ -70,7 +70,8 @@ function init() {
     CREATE TABLE IF NOT EXISTS item_types (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
-      is_custom INTEGER NOT NULL DEFAULT 0
+      is_custom INTEGER NOT NULL DEFAULT 0,
+      category_id INTEGER
     );
   `);
 
@@ -84,6 +85,12 @@ function init() {
     db.exec(`ALTER TABLE transactions ADD COLUMN item_type TEXT NOT NULL DEFAULT 'Other';`);
   } catch {
     // column exists
+  }
+
+  try {
+    db.exec(`ALTER TABLE item_types ADD COLUMN category_id INTEGER;`);
+  } catch {
+    // column exists or table doesn't exist yet
   }
 
   seedDefaults();

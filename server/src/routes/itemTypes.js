@@ -4,18 +4,45 @@ const { db } = require('../database');
 const router = express.Router();
 
 router.get('/', (_req, res) => {
-  const rows = db
-    .prepare('SELECT * FROM item_types ORDER BY is_custom ASC, name COLLATE NOCASE')
-    .all();
+  const categoryId = typeof _req.query?.category_id !== 'undefined' ? parseInt(_req.query.category_id, 10) : null;
+  const includeGlobal = String(_req.query?.include_global ?? '1');
+  let rows;
+  if (categoryId && Number.isFinite(categoryId)) {
+    if (includeGlobal === '0' || includeGlobal.toLowerCase() === 'false') {
+      rows = db
+        .prepare(
+          `SELECT * FROM item_types WHERE category_id = ? ORDER BY is_custom ASC, name COLLATE NOCASE`,
+        )
+        .all(categoryId);
+    } else {
+      rows = db
+        .prepare(
+          `SELECT * FROM item_types WHERE category_id IS NULL OR category_id = ? ORDER BY is_custom ASC, name COLLATE NOCASE`,
+        )
+        .all(categoryId);
+    }
+  } else {
+    rows = db.prepare('SELECT * FROM item_types ORDER BY is_custom ASC, name COLLATE NOCASE').all();
+  }
   res.json(rows);
 });
 
 router.post('/', (req, res) => {
   const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  const categoryId = typeof req.body?.category_id !== 'undefined' && req.body.category_id !== ''
+    ? parseInt(req.body.category_id, 10)
+    : null;
   if (!name) return res.status(400).json({ error: 'Name is required' });
 
   try {
-    const info = db.prepare('INSERT INTO item_types (name, is_custom) VALUES (?, 1)').run(name);
+    if (categoryId && !Number.isFinite(categoryId)) return res.status(400).json({ error: 'Invalid category' });
+    if (categoryId) {
+      const exists = db.prepare('SELECT 1 FROM categories WHERE id = ?').get(categoryId);
+      if (!exists) return res.status(400).json({ error: 'Category not found' });
+    }
+    const info = db
+      .prepare('INSERT INTO item_types (name, is_custom, category_id) VALUES (?, 1, ?)')
+      .run(name, categoryId);
     const row = db.prepare('SELECT * FROM item_types WHERE id = ?').get(info.lastInsertRowid);
     res.status(201).json(row);
   } catch (e) {

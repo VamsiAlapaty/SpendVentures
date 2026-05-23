@@ -9,7 +9,7 @@ const router = express.Router();
  * @param {unknown} raw
  * @returns {{ ok: true, value: string } | { ok: false, error: string }}
  */
-function resolveItemType(trxType, raw) {
+function resolveItemType(trxType, raw, categoryId) {
   if (trxType !== 'expense') {
     return { ok: true, value: 'Other' };
   }
@@ -17,9 +17,11 @@ function resolveItemType(trxType, raw) {
   if (!s) {
     return { ok: false, error: 'Item type is required' };
   }
-  const row = db.prepare('SELECT name FROM item_types WHERE LOWER(name) = LOWER(?)').get(s);
-  if (!row) {
-    return { ok: false, error: 'Choose a valid item type' };
+  const row = db.prepare('SELECT name, category_id FROM item_types WHERE LOWER(name) = LOWER(?)').get(s);
+  if (!row) return { ok: false, error: 'Choose a valid item type' };
+  // If the item type has a category, it must match the transaction category.
+  if (row.category_id && Number(categoryId) !== Number(row.category_id)) {
+    return { ok: false, error: 'Choose a valid item type for the selected category' };
   }
   return { ok: true, value: row.name };
 }
@@ -123,7 +125,7 @@ router.post('/', (req, res) => {
   const cat = db.prepare('SELECT id FROM categories WHERE id = ?').get(catId);
   if (!cat) return res.status(400).json({ errors: { category_id: 'Invalid category' } });
 
-  const resolved = resolveItemType(type, item_type);
+  const resolved = resolveItemType(type, item_type, catId);
   if (!resolved.ok) {
     return res.status(400).json({ errors: { item_type: resolved.error } });
   }
@@ -223,7 +225,7 @@ router.put('/:id', (req, res) => {
   const cat = db.prepare('SELECT id FROM categories WHERE id = ?').get(catId);
   if (!cat) return res.status(400).json({ errors: { category_id: 'Invalid category' } });
 
-  const resolved = resolveItemType(type, item_type);
+  const resolved = resolveItemType(type, item_type, catId);
   if (!resolved.ok) {
     return res.status(400).json({ errors: { item_type: resolved.error } });
   }

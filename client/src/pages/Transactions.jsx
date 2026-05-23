@@ -35,6 +35,7 @@ function customFromRow(row) {
 export default function Transactions() {
   const [categories, setCategories] = useState([]);
   const [itemTypes, setItemTypes] = useState([]);
+  const [allItemTypes, setAllItemTypes] = useState([]);
   const [customFields, setCustomFields] = useState([]);
   const [rows, setRows] = useState([]);
   const [filters, setFilters] = useState({
@@ -48,6 +49,7 @@ export default function Transactions() {
 
   const [newCategory, setNewCategory] = useState('');
   const [newItemType, setNewItemType] = useState('');
+  const [newItemCategory, setNewItemCategory] = useState('');
   const [fieldModalOpen, setFieldModalOpen] = useState(false);
   const [newFieldName, setNewFieldName] = useState('');
   const [newFieldType, setNewFieldType] = useState('text');
@@ -77,6 +79,7 @@ export default function Transactions() {
 
     if (results[1].status === 'fulfilled') {
       setItemTypes(results[1].value);
+      setAllItemTypes(results[1].value);
     } else {
       console.error(results[1].reason);
       toast.error(
@@ -84,6 +87,7 @@ export default function Transactions() {
         { duration: 6000 },
       );
       setItemTypes(FALLBACK_ITEM_TYPES);
+      setAllItemTypes(FALLBACK_ITEM_TYPES);
     }
 
     if (results[2].status === 'fulfilled') {
@@ -93,6 +97,44 @@ export default function Transactions() {
       toast.error('Could not load custom fields.');
     }
   }, []);
+
+  // When category selection changes in the add form, fetch item types filtered for that category.
+  useEffect(() => {
+    async function fetchForCategory(catId) {
+      try {
+        const path = catId
+          ? `/item-types?category_id=${encodeURIComponent(catId)}&include_global=0`
+          : '/item-types';
+        let types = await api(path);
+        if (!types.some((t) => t.name === 'Other')) {
+          types = [...types, { id: -9999, name: 'Other', is_custom: 0 }];
+        }
+        setItemTypes(types);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    fetchForCategory(form.category_id);
+  }, [form.category_id]);
+
+  // When opening the edit modal, ensure item types are appropriate for that row's category
+  useEffect(() => {
+    if (!editRow) return;
+    (async () => {
+      try {
+        const path = editRow.category_id
+          ? `/item-types?category_id=${encodeURIComponent(editRow.category_id)}&include_global=0`
+          : '/item-types';
+        let types = await api(path);
+        if (!types.some((t) => t.name === 'Other')) {
+          types = [...types, { id: -9999, name: 'Other', is_custom: 0 }];
+        }
+        setItemTypes(types);
+      } catch (err) {
+        console.error(err);
+      }
+    })();
+  }, [editRow]);
 
   const loadRows = useCallback(async () => {
     const txs = await api(`/transactions${qs}`);
@@ -166,14 +208,21 @@ export default function Transactions() {
     const name = newItemType.trim();
     if (!name) return;
     try {
-      const row = await api('/item-types', { method: 'POST', body: JSON.stringify({ name }) });
-      setItemTypes((prev) =>
-        [...prev, row].sort(
-          (a, b) => a.is_custom - b.is_custom || a.name.localeCompare(b.name),
-        ),
+      const body = { name };
+      if (newItemCategory) body.category_id = newItemCategory;
+      const row = await api('/item-types', { method: 'POST', body: JSON.stringify(body) });
+      setAllItemTypes((prev) =>
+        [...prev, row].sort((a, b) => a.is_custom - b.is_custom || a.name.localeCompare(b.name)),
       );
+      // If form is currently filtered to the same category (or not filtered), include the new type in the form list
+      if (!form.category_id || String(form.category_id) === String(row.category_id) || !row.category_id) {
+        setItemTypes((prev) =>
+          [...prev, row].sort((a, b) => a.is_custom - b.is_custom || a.name.localeCompare(b.name)),
+        );
+      }
       toast.success('Item type added');
       setNewItemType('');
+      setNewItemCategory('');
     } catch (err) {
       const hint =
         err.status === 404
@@ -195,6 +244,7 @@ export default function Transactions() {
     }
     try {
       await api(`/item-types/${t.id}`, { method: 'DELETE' });
+      setAllItemTypes((prev) => prev.filter((x) => x.id !== t.id));
       setItemTypes((prev) => prev.filter((x) => x.id !== t.id));
       setForm((f) =>
         f.item_type === t.name ? { ...f, item_type: 'Other' } : f,
@@ -310,7 +360,7 @@ export default function Transactions() {
   }
 
   const customCategories = categories.filter((c) => c.is_custom);
-  const customItemTypes = itemTypes.filter((t) => t.is_custom);
+  const customItemTypes = allItemTypes.filter((t) => t.is_custom);
 
   return (
     <div>
@@ -493,6 +543,18 @@ export default function Transactions() {
               onChange={(e) => setNewItemType(e.target.value)}
               style={{ flex: '1 1 200px', border: '1px solid #d9e3f3', borderRadius: 8, padding: '0.55rem' }}
             />
+            <select
+              value={newItemCategory}
+              onChange={(e) => setNewItemCategory(e.target.value)}
+              style={{ border: '1px solid #d9e3f3', borderRadius: 8, padding: '0.45rem' }}
+            >
+              <option value="">Global</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
             <button className="btn btn-ghost" type="submit">
               Add item type
             </button>
